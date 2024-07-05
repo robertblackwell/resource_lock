@@ -20,17 +20,19 @@ import pid_file.pidutil as pidutil
 debug = False
 # local_group = "robert"
 
-def open_with_permissions(fpath, open_mode):
+def open_with_permissions(fpath):
     """
     Should perhaps be called create_with_permissions.
     
     If the paths does not exists as a file create it and change its permissions
     to ugo=rwx
+
+    return an fd
     """
     if not os.path.isfile(fpath):
         pathlib.Path(fpath).touch(stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
         os.chmod(fpath, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
-    return open(fpath, open_mode)
+    return os.open(fpath, os.O_RDWR | os.O_CREAT | os.O_TRUNC)
 
 class LockFile:
     """
@@ -45,29 +47,29 @@ class LockFile:
         self.fpath = lock_file_path
         self.retry_max = 10
         self.retry_wait_secs = 0.5
-        self.file_fp = None
+        self.file_fd = None
         self.is_locked = False
         self.grp_name = grp_name
 
 
     def _open(self):
-        """This is a provate function - used only by other functions in this class"""
+        """This is a private function - used only by other functions in this class"""
         if self.is_locked:
             raise RuntimeError("LockFile.open is_locked should be false ")
-        if self.file_fp is not None:
+        if self.file_fd is not None:
             raise RuntimeError("LockFile.open file_fp should be None ")
 
         self.is_locked = False
-        self.file_fp = open_with_permissions(self.fpath, "w")
-        if self.file_fp is None:
+        self.file_fd = open_with_permissions(self.fpath)
+        if self.file_fd is None:
             raise RuntimeError("failed to open lockfile {}".format(self.fpath))
 
     def _close(self):
-        if self.file_fp is None:
+        if self.file_fd is None:
             raise RuntimeError("lock file is already closed")
 
-        self.file_fp.close()
-        self.file_fp = None
+        os.close(self.file_fd)
+        self.file_fd = None
         self.is_locked = False
 
     def try_lock(self, timeout_secs=0) -> bool:
@@ -77,10 +79,10 @@ class LockFile:
         count = 0
         while True:
             try:
-                if self.file_fp is None:
+                if self.file_fd is None:
                     raise RuntimeError("file_fp is None")
                 else:
-                    fcntl.lockf(self.file_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.lockf(self.file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     self.is_locked = True
                     return True
             except OSError as e:
@@ -91,25 +93,25 @@ class LockFile:
                     return False
 
     def unlock(self):
-        if self.file_fp is None:
+        if self.file_fd is None:
             raise RuntimeError("unlock - lock_file is not open")
         if not self.is_locked:
             raise RuntimeError("lock_file is not locked cannot unlock")
-        fcntl.lockf(self.file_fp, fcntl.LOCK_UN)
-        self.file_fp.close()
-        self.file_fp = None
+        fcntl.lockf(self.file_fd, fcntl.LOCK_UN)
+        os.close(self.file_fd)
+        self.file_fd = None
         self.is_locked = False
 
     def cleanup(self):
         """Called by finalize: to cleanup when things are in an unknown state"""
         print("LockFile.cleanup {}".format(self.fpath))
-        if self.file_fp is not None:
+        if self.file_fd is not None:
             if self.is_locked:
                 self.unlock()
-            self.file_fp.close()
+            os.close(self.file_fd)
         if os.path.isfile(self.fpath):
             os.remove(self.fpath)
-        self.file_fp = None
+        self.file_fd = None
         self.is_locked = False
 
 class PidEncodedFile:
@@ -126,7 +128,8 @@ class PidEncodedFile:
 
     def write(self, pid):
         # setPidPerm = 'chown :{} '.format(self.grp_name) + self.fpath
-        fo = open_with_permissions(self.fpath,'w')
+        fd = open_with_permissions(self.fpath)
+        fo = os.fdopen(fd, "w+")
         fo.write(str(pid))
         fo.close()
         # Popen(setPidPerm, shell=True, stdout=PIPE)
