@@ -1,6 +1,7 @@
+
+project_pig/
+smpl/project_pig/
 .DS*
-aorc_app/
-originals/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -17,8 +18,6 @@ __pycache__/
 .deps
 .Python
 build/
-aorc/stuff/
-output_config_files/
 develop-eggs/
 dist/
 downloads/
@@ -45,8 +44,6 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
-junk/
-
 # Unit test / coverage reports
 htmlcov/
 .tox/
@@ -57,9 +54,6 @@ nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
-
-#originals 
-originals/
 
 # Translations
 *.mo
@@ -79,8 +73,6 @@ instance/
 .scrapy
 
 # Sphinx documentation
-docs/md/
-/docs/html/
 docs/_build/
 docs/build
 

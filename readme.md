@@ -5,6 +5,23 @@ to lock a resource and in the event that the resurce is already locked to report
 
 # Installing
 
+Without using __pypi__ the simplest way to install this module into a project is:
+
+```bash
+
+cd .../Projects/my_project
+cd ..
+git clone git@github.com:robertblackwell/resource_lock.git
+cd ../my_project
+source ./env/bin/activate
+pip install ../resource_lock
+
+```
+
+Where yout python project that wants to use `resource_lock` resides in `.../Projects/my_project` 
+
+The repo `github.com:robertblackwell/resource_lock_example` demonstrates this
+
 # Usage
 
 Consider a situation where an application wishes to perform an action on an external resource. For example
