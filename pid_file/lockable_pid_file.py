@@ -8,17 +8,53 @@ from typing import Union, Tuple
 from subprocess import Popen, PIPE
 import fcntl
 from pprint import pprint
-import pwd
+import pwd, grp, getpass
 import os, pathlib, stat
-import pid_file.pidutil as pidutil
 
-# myfpath = __file__
-# mydirpath = os.path.dirname(myfpath)
-# mypidfile = os.path.join(mydirpath, "pid_file.txt")
-# mypid_lockfile = os.path.join(mydirpath, "pid_file.lock")
-# pid_file = mypidfile
 debug = False
-# local_group = "robert"
+
+def get_groupname_from_pid(pid) -> Union[str, None]:
+    # the /proc/PID is owned by process creator
+    proc_fpath = "/proc/{}".format(pid)
+    exists = os.path.isdir(proc_fpath)
+    if exists:
+        proc_stat_file = os.stat("/proc/%d" % pid)
+        # get UID via stat call
+        uid = proc_stat_file.st_uid
+        gid = proc_stat_file.st_gid
+        # look up the username from uid
+        username = pwd.getpwuid(uid)[0]
+        groupname = grp.getgrgid(gid)[0]
+        return groupname
+    return None
+
+def user_from_pid(pid) -> Union[str, None]:
+    """
+    Example of an internal function - function inside a function.
+    Keeps this function private and allows the use of a simpler name
+    """
+    proc_dir = "/proc/{}".format(pid)
+    if os.path.isdir(proc_dir):
+        proc_stat_file = os.stat(proc_dir)
+        # get UID via stat call
+        uid = proc_stat_file.st_uid
+        # look up the username from uid
+        username = pwd.getpwuid(uid)[0]
+        return username
+    return None
+
+
+def derive_lockfile_path(pid_file_path):
+    d = os.path.dirname(pid_file_path)
+    bn, ext = os.path.splitext(os.path.basename(pid_file_path))
+    lock_path = os.path.join(d, "{}{}".format(bn, ".lock"))
+    return lock_path
+
+
+def get_all_users_groups():
+    user = getpass.getuser()
+    groups = [g.gr_name for g in grp.getgrall() if user in g.gr_mem]
+    return groups
 
 def open_with_permissions(fpath):
     """
@@ -34,200 +70,86 @@ def open_with_permissions(fpath):
         os.chmod(fpath, stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO)
     return os.open(fpath, os.O_RDWR | os.O_CREAT | os.O_TRUNC)
 
-class LockFile:
-    """
-    This class adds an advisory locking facility to a file using the
-    linux fcntl.lockf() facility.
 
-    Warning it is only targeted at Linux systems
+def write_pid(filepath, pid):
+    fd = open_with_permissions(filepath)
+    fo = os.fdopen(fd, "w+")
+    fo.write(str(pid))
+    fo.close()
 
-    This is only a building block for the final pid file mechanism
-    """
-    def __init__(self, lock_file_path: str, grp_name: str):
-        self.fpath = lock_file_path
-        self.retry_max = 10
-        self.retry_wait_secs = 0.5
-        self.file_fd = None
-        self.is_locked = False
-        self.grp_name = grp_name
+def read_piddata(filepath) -> Tuple[str, float, Union[str, None]]:
+    pid_time=float(calendar.timegm(time.gmtime())  -  os.path.getmtime(filepath))
+    fp = open(filepath,'r')
+    pid_num = fp.readline()
+    usr = user_from_pid(pid_num)
+    fp.close()
+    return pid_num, pid_time, usr
 
-
-    def _open(self):
-        """This is a private function - used only by other functions in this class"""
-        if self.is_locked:
-            raise RuntimeError("LockFile.open is_locked should be false ")
-        if self.file_fd is not None:
-            raise RuntimeError("LockFile.open file_fp should be None ")
-
-        self.is_locked = False
-        self.file_fd = open_with_permissions(self.fpath)
-        if self.file_fd is None:
-            raise RuntimeError("failed to open lockfile {}".format(self.fpath))
-
-    def _close(self):
-        if self.file_fd is None:
-            raise RuntimeError("lock file is already closed")
-
-        os.close(self.file_fd)
-        self.file_fd = None
-        self.is_locked = False
-
-    def try_lock(self, timeout_secs=0) -> bool:
-        self._open()
-        if timeout_secs == 0:
-            timeout_secs = self.retry_wait_secs
-        count = 0
-        while True:
-            try:
-                if self.file_fd is None:
-                    raise RuntimeError("file_fp is None")
-                else:
-                    fcntl.lockf(self.file_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    self.is_locked = True
-                    return True
-            except OSError as e:
-                print("lock_file failed count: {}".format(count))
-                time.sleep(timeout_secs)
-                count += 1
-                if count >= self.retry_max:
-                    return False
-
-    def unlock(self):
-        if self.file_fd is None:
-            raise RuntimeError("unlock - lock_file is not open")
-        if not self.is_locked:
-            raise RuntimeError("lock_file is not locked cannot unlock")
-        fcntl.lockf(self.file_fd, fcntl.LOCK_UN)
-        os.close(self.file_fd)
-        self.file_fd = None
-        self.is_locked = False
-
-    def cleanup(self):
-        """Called by finalize: to cleanup when things are in an unknown state"""
-        print("LockFile.cleanup {}".format(self.fpath))
-        if self.file_fd is not None:
-            if self.is_locked:
-                self.unlock()
-            os.close(self.file_fd)
-        if os.path.isfile(self.fpath):
-            os.remove(self.fpath)
-        self.file_fd = None
-        self.is_locked = False
-
-class PidEncodedFile:
-    """This class provides a facility to read and write process id information into a file
-    as a means of indicating which process owns a resource.
-    
-    In our case the resource is permission to build and send device config files.
-    
-    This is only a building block for the final pid file mechanism
-    """
-    def __init__(self, fpath, grp_name):
-        self.fpath = fpath
-        self.grp_name = grp_name
-
-    def write(self, pid):
-        # setPidPerm = 'chown :{} '.format(self.grp_name) + self.fpath
-        fd = open_with_permissions(self.fpath)
-        fo = os.fdopen(fd, "w+")
-        fo.write(str(pid))
-        fo.close()
-        # Popen(setPidPerm, shell=True, stdout=PIPE)
-
-
-    def read(self) -> Tuple[str, float, Union[str, None]]:
-
-        # def user_from_pid(pid) -> Union[str, None]:
-        #     """
-        #     Example of an internal function - function inside a function.
-        #     Keeps this function private and allows the use of a simpler name
-        #     """
-        #     proc_dir = "/proc/{}".format(pid)
-        #     if os.path.isdir(proc_dir):
-        #         proc_stat_file = os.stat(proc_dir)
-        #         # get UID via stat call
-        #         uid = proc_stat_file.st_uid
-        #         # look up the username from uid
-        #         username = pwd.getpwuid(uid)[0]
-        #         return username
-        #     return None
-
-        pid_time=float(calendar.timegm(time.gmtime())  -  os.path.getmtime(self.fpath))
-        fp = open(self.fpath,'r')
-        pid_num = fp.readline()
-        usr = pidutil.user_from_pid(pid_num)
-        fp.close()
-        return pid_num, pid_time, usr
-
-    def cleanup(self):
-        # print("PidEncodedFile.cleanup")
-        if os.path.isfile(self.fpath):
-            os.remove(self.fpath)
 
 class LockablePidFile:
-    """This is the final mechanism for protecting a resource via an advisory lock
+    """This is a mechanism for protecting a resource via an advisory lock
     in a way that the pid of the owner is known to others who would like the resource
     
-    This class combines LockableFile with PidEncodeFile.
-
     Note that means 2 file
      
-    * one which is locked and unlocked 
-    * one which contains the Pid information
-
+    * lock_file_path - a file on which a fcntl.flock lock is applied 
+    * pid_file_path  - a file into which the holder of the lock puts its pid
+    * grp_name - the group that will own the lockfile and pidfile
+    
     This mechaism can be broken by abort signals so be sure to call `setup_handlers()`
     lower down in this file
+
     """
-    def __init__(self, pid_file_path, pid_lock_file_path, grp_name: str):
+    def __init__(self, lock_file_path, pid_file_path, retry_count=5, retry_interval_secs=1):
         self.pid_file_path = pid_file_path
-        self.pid_lock_file_path = pid_lock_file_path
-        self.grp_name = grp_name
-        self.lock_file = LockFile(pid_lock_file_path, grp_name)
-        self.pid_encoded_file = PidEncodedFile(pid_file_path, grp_name) 
+        self.lock_file_path = lock_file_path
+        self.lock_file_fd = None
+        self.error_msg = ""
+        self.retry_count = retry_count
+        self.retry_interval_secs = retry_interval_secs
 
     def acquire(self):
+        open_mode = os.O_RDWR | os.O_CREAT | os.O_TRUNC
+        fd = os.open(self.lock_file_path, open_mode)
 
         pid = os.getpid()
-        result = False
-        # lock_file.open()
-        if self.lock_file.try_lock():
-            if os.path.isfile(self.pid_file_path):
-                pid_num, pid_time, user = self.pid_encoded_file.read()
-                if user is not None:
-                    if debug:
-                        print("acquire: user is NOT None PID: {}".format(os.getpid()))
-                    result = False
-                    self.error_msg = 'The script is in use by user:[' + user +'] pid:['+ str(pid) + ']. Please wait a few minutes before trying to run the script again.'
-                else:
-                    if debug: 
-                        print("acquire: user is None PID: {}".format(os.getpid()))
-                    self.pid_encoded_file.write(pid)
-                    result = True
+        lock_file_fd = None
+        
+        timeout = self.retry_interval_secs * self.retry_count
+        start_time = current_time = time.time()
+        while current_time < start_time + timeout:
+            try:
+                # The LOCK_EX means that only one process can hold the lock
+                # The LOCK_NB means that the fcntl.flock() is not blocking
+                # and we are able to implement termination of while loop,
+                # when timeout is reached.
+                # More information here:
+                # https://docs.python.org/3/library/fcntl.html#fcntl.flock
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                write_pid(self.pid_file_path, pid)
+                # self.pid_encoded_file.write(pid)
+            except (IOError, OSError):
+                # pid_num, pid_time, user = self.pid_encoded_file.read()
+                pid_num, pid_time, user = read_piddata(self.pid_file_path)
+                self.error_msg = f"failed to get lock help by pid: {pid_num} pid_time: {pid_time} user: {user}"
             else:
-                if debug:
-                    print("acquire: Pid file does not exist PID: {}".format(os.getpid()))
-                self.pid_encoded_file.write(pid)
-                result = True
-            self.lock_file.unlock()
-            return result
-        else:
-            self.error_msg = 'Failed to get pid file lock - someone is hogging the file.'
-            self.lock_file.unlock()
-            return False
+                lock_file_fd = fd
+                break
+            print(f'  {pid} waiting for lock')
+            time.sleep(self.retry_interval_secs)
+            current_time = time.time()
+        if lock_file_fd is None:
+            os.close(fd)
+        return lock_file_fd
 
-
-    def release(self):
-        # lock_file.open()
-        if self.lock_file.try_lock():
-            if os.path.isfile(self.pid_file_path):
-                os.unlink(self.pid_file_path)
-        else:
-            raise RuntimeError('\nrelease - Failed to get pid file lock - some one is hogging the file.')
-        self.lock_file.unlock()
-
-    def cleanup(self):
-        self.lock_file.cleanup()
-        self.pid_encoded_file.cleanup()
+    def release(self, lockfile_fd):
+        # Do not remove the lockfile:
+        #
+        #   https://github.com/benediktschmitt/py-filelock/issues/31
+        #   https://stackoverflow.com/questions/17708885/flock-removing-locked-file-without-race-condition
+        fcntl.flock(lockfile_fd, fcntl.LOCK_UN)
+        os.close(lockfile_fd)
+        return None
 
 def keyboard_handler(a, b):
     print("keyboard handler")

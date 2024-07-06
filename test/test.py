@@ -22,21 +22,23 @@ def main():
 
     def try_lock_task_1():
         num = 1
-        lock = LockablePidFile(pidfile_path, lockfile_path, group_name)
-        if(lock.acquire()):
+        lock = LockablePidFile(lockfile_path, pidfile_path)
+        lockfd = lock.acquire()
+        if(lockfd is not None):
             print(f"task {num} got lock")
             time.sleep(300)
-            lock.release()
+            lock.release(lockfd)
         else:
             print(f"task {num} failed message -  {lock.error_msg}")
 
     def try_lock_task_2():
         num = 2
-        lock = LockablePidFile(pidfile_path, lockfile_path, group_name)
-        if(lock.acquire()):
+        lock = LockablePidFile(lockfile_path, pidfile_path)
+        lockfd = lock.acquire()
+        if(lockfd is not None):
             print(f"task {num} got lock")
-            time.sleep(30)
-            lock.release()
+            time.sleep(300)
+            lock.release(lockfd)
         else:
             print(f"task {num} failed message -  {lock.error_msg}")
 
