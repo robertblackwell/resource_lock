@@ -3,7 +3,17 @@
 This repo contains a small python module that is intended to allow multiple instances of a program
 to lock a resource and in the event that the resurce is already locked to report who has locked the resource.
 
-# Installing
+# Installing 
+
+I have recently added the `resource_lock` project to __pypi__. As a result the module can be installed with
+
+```bash
+cd to your project folder
+source venv/bin/activate
+python3 -m pip install resource_lock
+```
+
+# Installing - backdoor way
 
 Without using __pypi__ the simplest way to install this module into a project is:
 
