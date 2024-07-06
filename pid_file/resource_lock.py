@@ -4,7 +4,7 @@ import sys
 import calendar
 import time
 import signal
-from typing import Union, Tuple
+from typing import Union, Tuple, List
 from subprocess import Popen, PIPE
 import fcntl
 from pprint import pprint
@@ -13,7 +13,7 @@ import os, pathlib, stat
 
 debug = False
 
-def get_groupname_from_pid(pid) -> Union[str, None]:
+def get_groupname_from_pid(pid: int) -> Union[str, None]:
     # the /proc/PID is owned by process creator
     proc_fpath = "/proc/{}".format(pid)
     exists = os.path.isdir(proc_fpath)
@@ -28,7 +28,7 @@ def get_groupname_from_pid(pid) -> Union[str, None]:
         return groupname
     return None
 
-def user_from_pid(pid) -> Union[str, None]:
+def user_from_pid(pid: int) -> Union[str, None]:
     """
     Example of an internal function - function inside a function.
     Keeps this function private and allows the use of a simpler name
@@ -44,19 +44,12 @@ def user_from_pid(pid) -> Union[str, None]:
     return None
 
 
-def derive_lockfile_path(pid_file_path):
-    d = os.path.dirname(pid_file_path)
-    bn, ext = os.path.splitext(os.path.basename(pid_file_path))
-    lock_path = os.path.join(d, "{}{}".format(bn, ".lock"))
-    return lock_path
-
-
-def get_all_users_groups():
+def get_all_users_groups()->List[str]:
     user = getpass.getuser()
     groups = [g.gr_name for g in grp.getgrall() if user in g.gr_mem]
     return groups
 
-def open_with_permissions(fpath):
+def open_with_permissions(fpath) -> int:
     """
     Should perhaps be called create_with_permissions.
     
@@ -71,36 +64,41 @@ def open_with_permissions(fpath):
     return os.open(fpath, os.O_RDWR | os.O_CREAT | os.O_TRUNC)
 
 
-def write_pid(filepath, pid):
+def write_pid(filepath: str, pid: int):
     fd = open_with_permissions(filepath)
     fo = os.fdopen(fd, "w+")
     fo.write(str(pid))
     fo.close()
 
-def read_piddata(filepath) -> Tuple[str, float, Union[str, None]]:
+def read_piddata(filepath: str) -> Tuple[str, float, Union[str, None]]:
     pid_time=float(calendar.timegm(time.gmtime())  -  os.path.getmtime(filepath))
     fp = open(filepath,'r')
     pid_num = fp.readline()
-    usr = user_from_pid(pid_num)
+    usr = user_from_pid(int(pid_num))
     fp.close()
     return pid_num, pid_time, usr
 
 
-class LockablePidFile:
+class ResourceLock:
     """This is a mechanism for protecting a resource via an advisory lock
     in a way that the pid of the owner is known to others who would like the resource
     
     Note that means 2 file
-     
-    * lock_file_path - a file on which a fcntl.flock lock is applied 
-    * pid_file_path  - a file into which the holder of the lock puts its pid
-    * grp_name - the group that will own the lockfile and pidfile
+     * resource_name is a globally unique name for the resource to be protected
+     * lockfile_dir is the directory in which the lockfile and pidfile will be created
+
+    * lock_file_path - the path to the lock file. Derived as `resource_name.lock` 
+    * pid_file_path  - the path to the file into which the holder of the lock puts its pid
+    *                   this is derived from the resource_name as `resource_name.pid`
     
     This mechaism can be broken by abort signals so be sure to call `setup_handlers()`
     lower down in this file
 
     """
-    def __init__(self, lock_file_path, pid_file_path, retry_count=5, retry_interval_secs=1):
+    def __init__(self, resource_name, lockfile_dir, retry_count=5, retry_interval_secs=1):
+        d = os.path.realpath(lockfile_dir)
+        lock_file_path = os.path.join(d, f"{resource_name}.lock")
+        pid_file_path = os.path.join(d, f"{resource_name}.pid")
         self.pid_file_path = pid_file_path
         self.lock_file_path = lock_file_path
         self.lock_file_fd = None
@@ -108,7 +106,8 @@ class LockablePidFile:
         self.retry_count = retry_count
         self.retry_interval_secs = retry_interval_secs
 
-    def acquire(self):
+    def acquire(self) -> int | None:
+        """Returns int on success and None on failure"""
         open_mode = os.O_RDWR | os.O_CREAT | os.O_TRUNC
         fd = os.open(self.lock_file_path, open_mode)
 

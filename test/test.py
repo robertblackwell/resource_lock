@@ -11,18 +11,19 @@ project_dir = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, project_dir)
 sys.path.insert(1, os.path.join(project_dir, "pid_file"))
 
-from pid_file.lockable_pid_file import LockablePidFile                
+from pid_file.resource_lock import ResourceLock                
 
     
 
 def main():
     lockfile_path = "./lockfile" 
     pidfile_path = "pidfile"
-    group_name = "everyone"
+    resource_name = "test_resource"
+    lockfile_dir = os.path.dirname(__file__)
 
     def try_lock_task_1():
         num = 1
-        lock = LockablePidFile(lockfile_path, pidfile_path)
+        lock = ResourceLock(resource_name, lockfile_dir)
         lockfd = lock.acquire()
         if(lockfd is not None):
             print(f"task {num} got lock")
@@ -33,7 +34,7 @@ def main():
 
     def try_lock_task_2():
         num = 2
-        lock = LockablePidFile(lockfile_path, pidfile_path)
+        lock = ResourceLock(resource_name, lockfile_dir)
         lockfd = lock.acquire()
         if(lockfd is not None):
             print(f"task {num} got lock")

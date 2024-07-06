@@ -25,29 +25,35 @@ file.
 The basic mechansim is as follows:
 
 -   use the `Linux` advisory locking mechanism `flock`.
--   agree a full path to a file which will be the subjest of an `flock` call. `lockfile_path`
--   agree a full path to a file which will hold the `pid` of the process currently holding the lock. `pidfile_path`
--   agree the Linux group name of all the users allowed to lock the resource. `group_name`
-
-Then the following code segment should be included in the application
+-   provide a globally unique name for the resource to be protected `resource_name`
+-   provide a path to a directory in which a lock file and pid file will be created
+-   derive the name of the lock file as `f"{resource_name}.lock"`
+-   derive the name of the pid file as `f"{resource_name}.pid"`
+-   apply `flock` to the lock file and 
+    -   if successful write the process  pid into the pid file
+    -   if `flock` failed read the pid of the holder of the lock from the pid file and use that pid to get the user name of the lock holder
+  
+Then the following code segment demonstrates how to use this module
 
 ```python
 
-pidfile_path = "....."
-lockfile_path = "....."
-group_name = "...."
+resource_name = "....."
+lockfile_dir_path = "....."
 
-lock = LockablePidFile(pidfile_path, lockfile_path, group_name)
+lock = LockablePidFile(resource_name, lockfile_dir_path)
 
-if lock.acquire*():
+token = lock.acquire():
+if token is not None:
     # the lock is successfully acquired
     send_file_to_remote_device(.....)
 
-    lock.release()
+    lock.release(token)
 else:
     # failed to acquire lock - print an error message
 
-    print(f"Failed to acquire lock details are : {lock.error_message }")
+    print(f"Failed to acquire lock details are : {lock.error_msg}")
 
 
 ```
+
+The locking mechanis
