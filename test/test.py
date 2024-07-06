@@ -9,9 +9,9 @@ print(f"{os.path.realpath(os.path.dirname(__file__))}")
 print(f"{os.path.realpath(os.path.dirname(os.path.dirname(__file__)))}")
 project_dir = os.path.realpath(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, project_dir)
-sys.path.insert(1, os.path.join(project_dir, "pid_file"))
+sys.path.insert(1, os.path.join(project_dir, "resource_lock"))
 
-from pid_file.resource_lock import ResourceLock                
+from resource_lock.resource_lock import ResourceLock                
 
     
 
