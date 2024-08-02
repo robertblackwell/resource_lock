@@ -1,7 +1,7 @@
 import setuptools 
 setuptools.setup(     
      name='resource_lock',
-     version='0.1.0',    
+     version='0.2.0',    
      description='Python module to lock an arbitary resource',
      url='https://github.com/robertblackwell/resource_lock',
      author='robertblackwell',

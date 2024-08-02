@@ -64,15 +64,18 @@ Then the following code segment demonstrates how to use this module
 
 ```python
 
+from resource_lock.resource_lock import ResourceLock
+
 resource_name = "....."
 lockfile_dir_path = "....."
 
-lock = LockablePidFile(resource_name, lockfile_dir_path)
+lock = ResourceLock(resource_name, lockfile_dir_path)
 
 token = lock.acquire():
 if token is not None:
     # the lock is successfully acquired
     send_file_to_remote_device(.....)
+    # or whatever other stuff you need to do here
 
     lock.release(token)
 else:
@@ -82,5 +85,3 @@ else:
 
 
 ```
-
-The locking mechanis
