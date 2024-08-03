@@ -6,7 +6,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setuptools.setup(     
      name='resource_lock',
-     version='0.2.0',    
+     version='0.3.0',    
      description='Python module to lock an arbitary resource',
      long_description=long_description,
      long_description_content_type='text/markdown',
