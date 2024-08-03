@@ -64,7 +64,8 @@ Then the following code segment demonstrates how to use this module
 
 ```python
 
-from resource_lock.resource_lock import ResourceLock
+from resource_lock import ResourceLock
+# or from resource_lock.resource_lock import ResourceLock if using version lower than 0.4.0
 
 resource_name = "....."
 lockfile_dir_path = "....."
