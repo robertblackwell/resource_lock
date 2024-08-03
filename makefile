@@ -10,4 +10,4 @@ check:
 
 .PHONY: publish
 publish:
-	twine upload dist/*
+	twine upload --username `op read "op://Rob/pypi/username"` --password `op read "op://Rob/pypi/password"` upload dist/*
