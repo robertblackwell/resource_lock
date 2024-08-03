@@ -1,8 +1,9 @@
 .PHONY: build
 build:
 	rm dist/*
-	python3 setup.py bdist_wheel
-	python3 setup.py sdist
+	python3 -m build
+	# python3 setup.py bdist_wheel
+	# python3 setup.py sdist
 
 .PHONY: check
 check:
